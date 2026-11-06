@@ -76,7 +76,7 @@
                     resultsArea.classList.remove('hidden');
                 }
 
-                const isRunning = result.status === 'running' || result.status === 'scrolling' || result.status === 'collecting';
+                const isRunning = ['running', 'scrolling', 'collecting', 'approving'].includes(result.status);
                 collectBtn.disabled = isRunning;
                 stopBtn.disabled = !isRunning;
 
@@ -146,6 +146,12 @@
             const tdName = document.createElement('td');
             tdName.textContent = member.name;
             tdName.style.fontWeight = '600';
+            if (member.approved) {
+                const tag = document.createElement('span');
+                tag.className = 'approved-tag';
+                tag.textContent = 'approved';
+                tdName.appendChild(tag);
+            }
             tr.appendChild(tdName);
 
             const tdUrl = document.createElement('td');
@@ -464,6 +470,158 @@
     historyCopyBtn.addEventListener('click', () => copyToClipboard(historyViewMembers));
     historyCsvBtn.addEventListener('click', () => exportCSV(historyViewMembers));
     historyExcelBtn.addEventListener('click', () => exportExcel(historyViewMembers));
+
+    // ========== GOOGLE SHEET ==========
+
+    const sheetUrlInput = document.getElementById('sheetUrlInput');
+    const sheetSaveBtn = document.getElementById('sheetSaveBtn');
+    const sheetStatus = document.getElementById('sheetStatus');
+    const sheetSettings = document.getElementById('sheetSettings');
+    const sheetOpenLink = document.getElementById('sheetOpenLink');
+    const sheetBtn = document.getElementById('sheetBtn');
+    const historySheetBtn = document.getElementById('historySheetBtn');
+    const approveAfterPushToggle = document.getElementById('approveAfterPushToggle');
+
+    const team = (typeof TEAM_CONFIG !== 'undefined' && TEAM_CONFIG) || {};
+    sheetOpenLink.href = team.SHEET_URL || '#';
+
+    /** The team's shared web app from config.js, unless this browser saved an override. */
+    async function getSheetConfig() {
+        const r = await chrome.storage.local.get(['sheetWebAppUrl']);
+        return {
+            url: (r.sheetWebAppUrl || team.SHEET_WEB_APP_URL || '').trim(),
+            isOverride: Boolean(r.sheetWebAppUrl)
+        };
+    }
+
+    function updateSheetButtonLabels() {
+        const label = approveAfterPushToggle.checked ? '🟢 Push & Approve' : '🟢 Push to Sheet';
+        sheetBtn.textContent = label;
+        historySheetBtn.textContent = label;
+    }
+
+    async function showSheetStatus() {
+        const { url, isOverride } = await getSheetConfig();
+        sheetStatus.textContent = !url ? 'not set up' : (isOverride ? 'custom web app' : 'team sheet');
+        sheetStatus.classList.toggle('ok', Boolean(url));
+    }
+
+    chrome.storage.local.get(['sheetWebAppUrl', 'approveAfterPush'], (r) => {
+        sheetUrlInput.value = r.sheetWebAppUrl || '';
+        approveAfterPushToggle.checked = r.approveAfterPush !== false;
+        updateSheetButtonLabels();
+        showSheetStatus();
+    });
+
+    sheetSaveBtn.addEventListener('click', () => {
+        const url = sheetUrlInput.value.trim();
+        if (url && !/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(url)) {
+            showToast('⚠️ URL should look like https://script.google.com/macros/s/.../exec');
+            return;
+        }
+        chrome.storage.local.set({ sheetWebAppUrl: url }, () => {
+            showSheetStatus();
+            showToast(url ? '✅ Custom web app saved' : '✅ Using the team sheet');
+        });
+    });
+
+    approveAfterPushToggle.addEventListener('change', () => {
+        chrome.storage.local.set({ approveAfterPush: approveAfterPushToggle.checked });
+        updateSheetButtonLabels();
+    });
+
+    /**
+     * Approve, in the open Facebook tab, the members the sheet confirmed it holds
+     * (just added, or already there from an earlier push).
+     */
+    async function approveInGroup(members) {
+        if (members.length === 0) return;
+        const tab = await getActiveTab();
+        if (!tab || !tab.url || !/facebook\.com\/groups\/[^/]+\/(member-)?requests/.test(tab.url)) {
+            showToast('⚠️ Saved to sheet. Open the group requests page to approve.');
+            return;
+        }
+        try {
+            await sendToContent(tab, { action: 'ping' });
+        } catch (e) {
+            await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+            await new Promise(r => setTimeout(r, 500));
+        }
+        const res = await sendToContent(tab, {
+            action: 'approve',
+            members: members.map(m => ({
+                name: m.name,
+                groupProfileUrl: m.groupProfileUrl || '',
+                realProfileUrl: m.realProfileUrl || ''
+            }))
+        });
+        if (!res || !res.started) {
+            showToast(`⚠️ ${(res && res.error) || 'Could not start approving'}`);
+            return;
+        }
+        document.querySelector('.tab[data-tab="collect"]').click();
+        statusArea.classList.remove('hidden');
+        collectBtn.disabled = true;
+        stopBtn.disabled = false;
+        startPolling();
+    }
+
+    async function pushToSheet(members, button) {
+        if (!members || members.length === 0) { showToast('No data to push!'); return; }
+
+        const { url } = await getSheetConfig();
+        if (!url) {
+            sheetSettings.open = true;
+            document.querySelector('.tab[data-tab="collect"]').click();
+            showToast('⚠️ No sheet web app URL in config.js yet');
+            return;
+        }
+
+        const label = button.innerHTML;
+        button.disabled = true;
+        button.textContent = '⏳ Pushing...';
+        try {
+            // text/plain avoids a CORS preflight, which Apps Script does not answer
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({
+                    members: members.map(m => ({
+                        name: m.name,
+                        realProfileUrl: m.realProfileUrl || '',
+                        qa: m.qa || []
+                    }))
+                })
+            });
+            const text = await res.text();
+            let data;
+            try { data = JSON.parse(text); } catch (e) {
+                throw new Error(res.ok ? 'Unexpected response (check the web app access is "Anyone")' : `HTTP ${res.status}`);
+            }
+            if (!data.ok) throw new Error(data.error || 'Push failed');
+            const skippedNote = data.skipped ? `, ${data.skipped} already in sheet` : '';
+            showToast(`✅ Added ${data.added} row(s)${skippedNote}`);
+
+            if (approveAfterPushToggle.checked) {
+                if (!Array.isArray(data.statuses) || data.statuses.length !== members.length) {
+                    showToast('⚠️ Saved, but the Apps Script is outdated: redeploy it to enable approving');
+                    return;
+                }
+                // Only members the sheet confirmed (added now or already there), not yet approved
+                const toApprove = members.filter((m, i) =>
+                    (data.statuses[i] === 'added' || data.statuses[i] === 'exists') && !m.approved);
+                await approveInGroup(toApprove);
+            }
+        } catch (err) {
+            showToast(`❌ ${err.message}`);
+        } finally {
+            button.disabled = false;
+            button.innerHTML = label;
+        }
+    }
+
+    sheetBtn.addEventListener('click', () => pushToSheet(collectedMembers, sheetBtn));
+    historySheetBtn.addEventListener('click', () => pushToSheet(historyViewMembers, historySheetBtn));
 
     function escapeXml(str) {
         return str

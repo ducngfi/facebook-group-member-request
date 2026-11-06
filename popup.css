@@ -457,3 +457,111 @@ td a:hover {
 .history-detail {
   padding-top: 4px;
 }
+/* ===== Google Sheet ===== */
+.btn-sheet {
+  background: #188038;
+  color: #fff;
+  border: 1px solid #188038;
+}
+
+.btn-sheet:hover:not(:disabled) {
+  background: #1e8e3e;
+}
+
+.sheet-settings {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.sheet-settings summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sheet-status {
+  font-size: 11px;
+  color: #888;
+  margin-left: 6px;
+}
+
+.sheet-status.ok {
+  color: #34a853;
+}
+
+.sheet-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sheet-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #a0aec0;
+}
+
+.sheet-form input {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #e0e0e0;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.sheet-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sheet-form-actions a {
+  color: #8ab4f8;
+  font-size: 12px;
+}
+
+.sheet-help {
+  font-size: 11px;
+  color: #888;
+  line-height: 1.5;
+}
+
+.sheet-help code {
+  color: #ccc;
+}
+
+.sheet-form .sheet-approve-row {
+  flex-direction: row;
+  color: #e0e0e0;
+  font-size: 12px;
+}
+
+.approved-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(52, 168, 83, 0.18);
+  color: #34a853;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.sheet-advanced {
+  font-size: 11px;
+  color: #888;
+}
+
+.sheet-advanced summary {
+  margin-bottom: 6px;
+}
+
+.sheet-advanced label {
+  margin-bottom: 6px;
+}

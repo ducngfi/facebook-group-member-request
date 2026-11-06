@@ -177,6 +177,89 @@
   }
 
   /**
+   * Visible Facebook dropdown menus currently on screen.
+   */
+  function findVisibleMenus() {
+    return Array.from(document.querySelectorAll('[role="menu"]')).filter(el => {
+      if (!el.isConnected) return false;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return false;
+      const style = window.getComputedStyle(el);
+      return style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
+    });
+  }
+
+  function isMenuOpen(moreBtn) {
+    if (moreBtn && moreBtn.getAttribute('aria-expanded') === 'true') return true;
+    return findVisibleMenus().length > 0;
+  }
+
+  function pressEscape(target) {
+    const opts = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true, composed: true };
+    target.dispatchEvent(new KeyboardEvent('keydown', opts));
+    target.dispatchEvent(new KeyboardEvent('keyup', opts));
+  }
+
+  /**
+   * Simulate a full outside click (pointer + mouse events). Facebook closes
+   * menus on an outside pointerdown/mousedown, which a bare .click() never sends.
+   */
+  function clickOutside() {
+    // Dispatch on <body> itself (never on a link/button that happens to be under a point)
+    const x = 5, y = Math.round(window.innerHeight / 2);
+    const target = document.body;
+    const base = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0, view: window };
+    const Pointer = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+    target.dispatchEvent(new Pointer('pointerdown', { ...base, pointerType: 'mouse', isPrimary: true }));
+    target.dispatchEvent(new MouseEvent('mousedown', base));
+    target.dispatchEvent(new Pointer('pointerup', { ...base, pointerType: 'mouse', isPrimary: true }));
+    target.dispatchEvent(new MouseEvent('mouseup', base));
+    target.dispatchEvent(new MouseEvent('click', base));
+  }
+
+  /**
+   * Close any open "More options" menu and verify it is actually gone.
+   * Tries Escape, then toggling the "..." button, then an outside click.
+   */
+  async function closeOpenMenus(moreBtn) {
+    if (!isMenuOpen(moreBtn)) return true;
+
+    const attempts = [
+      () => {
+        // Focus sits inside the open menu, so send Escape there first
+        const menu = findVisibleMenus()[0];
+        pressEscape(document.activeElement && document.activeElement !== document.body
+          ? document.activeElement
+          : (menu || document.body));
+      },
+      () => pressEscape(document),
+      () => {
+        // Clicking the same "..." button again toggles its menu closed
+        if (moreBtn && moreBtn.isConnected && moreBtn.getAttribute('aria-expanded') !== 'false') {
+          moreBtn.click();
+        }
+      },
+      () => clickOutside(),
+    ];
+
+    for (const attempt of attempts) {
+      try { attempt(); } catch (e) { /* ignore */ }
+      await sleep(400);
+      if (!isMenuOpen(moreBtn)) return true;
+    }
+
+    // Last resort: blur whatever is focused and try Escape + outside click once more
+    try { document.activeElement && document.activeElement.blur && document.activeElement.blur(); } catch (e) { /* ignore */ }
+    pressEscape(document.body);
+    clickOutside();
+    await sleep(500);
+
+    const closed = !isMenuOpen(moreBtn);
+    if (!closed) console.warn('[FB Collector] Menu still open after all close attempts');
+    return closed;
+  }
+
+  /**
    * Click the 3-dot menu and extract the real profile URL from "View profile".
    */
   async function extractRealProfileUrl(card, memberName) {
@@ -200,11 +283,20 @@
       document.querySelectorAll('[role="menuitem"] a, [role="menu"] a')
     );
 
+    // Make sure no menu from a previous member is still open
+    await closeOpenMenus(null);
+
     // Scroll and click
     moreBtn.scrollIntoView({ behavior: 'instant', block: 'center' });
     await sleep(500);
     moreBtn.click();
-    await sleep(2500);
+
+    // Wait for the menu to render (up to ~3s)
+    for (let t = 0; t < 15; t++) {
+      await sleep(200);
+      if (findVisibleMenus().length > 0 || moreBtn.getAttribute('aria-expanded') === 'true') break;
+    }
+    await sleep(400);
 
     // Find the NEW "View profile" link
     let profileUrl = '';
@@ -252,28 +344,8 @@
       }
     }
 
-    // Close the menu
-    const activeEl = document.activeElement || document.body;
-    activeEl.dispatchEvent(new KeyboardEvent('keydown', {
-      key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true, cancelable: true
-    }));
-    await sleep(500);
-
-    document.body.dispatchEvent(new KeyboardEvent('keydown', {
-      key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true, cancelable: true
-    }));
-    await sleep(300);
-
-    try {
-      const overlay = document.querySelector('[data-visualcompletion="ignore-dynamic"]');
-      if (overlay && typeof overlay.click === 'function') {
-        overlay.click();
-      }
-    } catch (e) { /* ignore */ }
-    await sleep(200);
-
-    document.body.click();
-    await sleep(500);
+    // Close the menu we opened (verified, with fallbacks)
+    await closeOpenMenus(moreBtn);
 
     // Clean URL
     if (profileUrl) {
@@ -385,6 +457,8 @@
         await sleep(800);
       }
 
+      await closeOpenMenus(null);
+
       // Done — save to history
       const session = {
         id: Date.now(),
@@ -423,10 +497,150 @@
     }
   }
 
+  // ========== APPROVE ==========
+
+  const APPROVED_TEXT = /(^|\s)(Approved|Đã phê duyệt|Đã duyệt)(\s|$|\.)/i;
+
+  function memberKey(m) {
+    return m.groupProfileUrl || m.realProfileUrl || m.name;
+  }
+
+  function userIdFromUrl(u) {
+    const match = String(u || '').match(/\/user\/(\d+)/);
+    return match ? match[1] : '';
+  }
+
+  /**
+   * Find the pending request card for a member. Same-name members are told
+   * apart by the /user/<id> link in their card.
+   */
+  function findCardForMember(member) {
+    const candidates = findMemberCards().filter(c => c.name === member.name);
+    if (candidates.length === 0) return null;
+    const wantId = userIdFromUrl(member.groupProfileUrl);
+    if (wantId) {
+      const exact = candidates.find(c => userIdFromUrl(extractGroupProfileUrl(c.element)) === wantId);
+      if (exact) return exact;
+      // An id was recorded but no card matches it: don't guess between namesakes
+      if (candidates.length > 1) return null;
+    }
+    return candidates.length === 1 ? candidates[0] : null;
+  }
+
+  function findApproveButton(card, name) {
+    return card.querySelector(`[role="button"][aria-label="Approve ${CSS.escape(name)}"]`) ||
+      card.querySelector(`[role="button"][aria-label="Phê duyệt ${CSS.escape(name)}"]`);
+  }
+
+  /** If Facebook asks to confirm, click the dialog's approve/confirm button. */
+  function confirmDialogIfAny() {
+    const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'))
+      .filter(d => d.getBoundingClientRect().height > 0);
+    for (const d of dialogs) {
+      const btn = Array.from(d.querySelectorAll('[role="button"], button')).find(b => {
+        const label = (b.getAttribute('aria-label') || b.textContent || '').trim();
+        return /^(Approve|Confirm|Phê duyệt|Xác nhận)$/i.test(label);
+      });
+      if (btn) { btn.click(); return true; }
+    }
+    return false;
+  }
+
+  /** Click Approve for one member and wait until Facebook shows it went through. */
+  async function approveOne(member) {
+    const found = findCardForMember(member);
+    if (!found) return 'not_found';
+    const card = found.element;
+    const btn = findApproveButton(card, member.name);
+    if (!btn) return APPROVED_TEXT.test(card.textContent) ? 'approved' : 'not_found';
+
+    btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+    await sleep(400);
+    btn.click();
+
+    for (let t = 0; t < 25; t++) {
+      await sleep(200);
+      if (t === 3) confirmDialogIfAny();
+      if (!btn.isConnected || !card.isConnected) return 'approved';
+      if (btn.getAttribute('aria-disabled') === 'true') return 'approved';
+      if (APPROVED_TEXT.test(card.textContent)) return 'approved';
+    }
+    return 'unconfirmed';
+  }
+
+  /** Mark approved members in the current results and in history. */
+  function markApproved(keys) {
+    if (keys.size === 0) return;
+    chrome.storage.local.get(['collectedMembers', 'scrapeHistory'], (r) => {
+      const mark = list => (list || []).map(m => keys.has(memberKey(m)) ? { ...m, approved: true } : m);
+      const update = { collectedMembers: mark(r.collectedMembers) };
+      if (r.scrapeHistory) {
+        update.scrapeHistory = r.scrapeHistory.map(s => ({ ...s, members: mark(s.members) }));
+      }
+      chrome.storage.local.set(update);
+    });
+  }
+
+  async function approveMembers(members) {
+    if (isCollecting) return;
+    isCollecting = true;
+    shouldStop = false;
+    const counts = { approved: 0, not_found: 0, unconfirmed: 0 };
+    const approvedKeys = new Set();
+
+    saveState({
+      status: 'approving',
+      statusMessage: `Approving ${members.length} member(s) in the group...`,
+      progressCurrent: 0,
+      progressTotal: members.length
+    });
+
+    try {
+      await closeOpenMenus(null);
+      for (let i = 0; i < members.length; i++) {
+        if (shouldStop) break;
+        const m = members[i];
+        saveState({
+          status: 'approving',
+          statusMessage: `Approving ${m.name} (${i + 1}/${members.length})...`,
+          progressCurrent: i + 1
+        });
+        const result = await approveOne(m);
+        counts[result]++;
+        if (result === 'approved') approvedKeys.add(memberKey(m));
+        console.log(`[FB Collector] Approve ${m.name}: ${result}`);
+        // Pause between approvals so Facebook doesn't rate-limit the admin
+        await sleep(1200 + Math.random() * 1300);
+      }
+    } catch (error) {
+      console.error('[FB Collector] Approve error:', error);
+    } finally {
+      markApproved(approvedKeys);
+      const parts = [`✅ Approved ${counts.approved}`];
+      if (counts.not_found) parts.push(`${counts.not_found} not found on page`);
+      if (counts.unconfirmed) parts.push(`${counts.unconfirmed} not confirmed (check the page)`);
+      saveState({
+        status: shouldStop ? 'stopped' : 'done',
+        statusMessage: (shouldStop ? 'Stopped. ' : '') + parts.join(', ') + '.',
+        approveResult: { ...counts, at: new Date().toISOString() }
+      });
+      isCollecting = false;
+    }
+  }
+
   // Listen for messages from popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'collect') {
       collectMembers(request.options);
+      sendResponse({ started: true });
+      return true;
+    }
+    if (request.action === 'approve') {
+      if (isCollecting) {
+        sendResponse({ started: false, error: 'Busy: a collection or approval is already running' });
+        return true;
+      }
+      approveMembers(request.members || []);
       sendResponse({ started: true });
       return true;
     }

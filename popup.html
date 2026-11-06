@@ -43,6 +43,30 @@
         </div>
       </div>
 
+      <!-- Google Sheet settings -->
+      <details id="sheetSettings" class="sheet-settings">
+        <summary>🟢 Google Sheet <span id="sheetStatus" class="sheet-status">not set up</span></summary>
+        <div class="sheet-form">
+          <label class="toggle-label sheet-approve-row">
+            <input type="checkbox" id="approveAfterPushToggle" checked>
+            <span class="toggle-slider"></span>
+            Approve members in the group after pushing
+          </label>
+          <div class="sheet-form-actions">
+            <a id="sheetOpenLink" href="#" target="_blank">Open team sheet ↗</a>
+          </div>
+          <details class="sheet-advanced">
+            <summary>Advanced: use a different web app URL</summary>
+            <label>Web app URL (leave empty to use the team sheet)
+              <input type="url" id="sheetUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
+            </label>
+            <div class="sheet-form-actions">
+              <button id="sheetSaveBtn" class="btn btn-sm btn-secondary">💾 Save</button>
+            </div>
+          </details>
+        </div>
+      </details>
+
       <!-- Status -->
       <div id="statusArea" class="status-area hidden">
         <div class="status-text" id="statusText">Ready</div>
@@ -65,6 +89,9 @@
             </button>
             <button id="excelBtn" class="btn btn-sm btn-secondary" title="Export as Excel">
               📊 Excel
+            </button>
+            <button id="sheetBtn" class="btn btn-sm btn-sheet" title="Append to the Google Sheet">
+              🟢 Push to Sheet
             </button>
             <button id="clearBtn" class="btn btn-sm btn-danger" title="Clear data">
               🗑️ Clear
@@ -102,6 +129,7 @@
             <button id="historyCopyBtn" class="btn btn-sm btn-secondary">📋 Copy</button>
             <button id="historyCsvBtn" class="btn btn-sm btn-secondary">📄 CSV</button>
             <button id="historyExcelBtn" class="btn btn-sm btn-secondary">📊 Excel</button>
+            <button id="historySheetBtn" class="btn btn-sm btn-sheet">🟢 Push to Sheet</button>
           </div>
         </div>
         <div class="table-wrapper">
@@ -124,6 +152,7 @@
     <div id="toast" class="toast hidden">Copied to clipboard!</div>
   </div>
 
+  <script src="config.js"></script>
   <script src="popup.js"></script>
 </body>
 
