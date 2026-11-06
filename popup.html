@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FB Member Collector</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+  <div class="container">
+    <header>
+      <h1>👥 Member Request Collector</h1>
+      <p class="subtitle">Collect info from Facebook group member requests</p>
+    </header>
+
+    <!-- Tab navigation -->
+    <div class="tabs">
+      <button class="tab active" data-tab="collect">Collect</button>
+      <button class="tab" data-tab="history">History</button>
+    </div>
+
+    <!-- ===== COLLECT TAB ===== -->
+    <div id="collectTab" class="tab-content active">
+
+      <!-- Controls -->
+      <div class="controls">
+        <div class="option-row">
+          <label class="toggle-label">
+            <input type="checkbox" id="autoScrollToggle" checked>
+            <span class="toggle-slider"></span>
+            Auto-scroll to load all requests
+          </label>
+        </div>
+        <div class="btn-row">
+          <button id="collectBtn" class="btn btn-primary">
+            <span class="btn-icon">▶</span> Collect Members
+          </button>
+          <button id="stopBtn" class="btn btn-danger" disabled>
+            <span class="btn-icon">■</span> Stop
+          </button>
+        </div>
+      </div>
+
+      <!-- Status -->
+      <div id="statusArea" class="status-area hidden">
+        <div class="status-text" id="statusText">Ready</div>
+        <div class="progress-bar-container" id="progressBarContainer">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="progress-label" id="progressLabel"></div>
+      </div>
+
+      <!-- Results -->
+      <div id="resultsArea" class="results-area hidden">
+        <div class="results-header">
+          <h2>Results <span id="resultCount" class="badge">0</span></h2>
+          <div class="export-btns">
+            <button id="copyBtn" class="btn btn-sm btn-secondary" title="Copy to clipboard">
+              📋 Copy
+            </button>
+            <button id="csvBtn" class="btn btn-sm btn-secondary" title="Export as CSV">
+              📄 CSV
+            </button>
+            <button id="excelBtn" class="btn btn-sm btn-secondary" title="Export as Excel">
+              📊 Excel
+            </button>
+            <button id="clearBtn" class="btn btn-sm btn-danger" title="Clear data">
+              🗑️ Clear
+            </button>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table id="resultsTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>Profile URL</th>
+                <th>Answers</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== HISTORY TAB ===== -->
+    <div id="historyTab" class="tab-content">
+      <div id="historyList" class="history-list">
+        <p class="empty-history">No scrape history yet.</p>
+      </div>
+
+      <!-- History detail view (hidden by default) -->
+      <div id="historyDetail" class="history-detail hidden">
+        <button id="historyBackBtn" class="btn btn-sm btn-secondary">← Back to list</button>
+        <div class="results-header" style="margin-top:10px;">
+          <h2 id="historyDetailTitle">Session</h2>
+          <div class="export-btns">
+            <button id="historyCopyBtn" class="btn btn-sm btn-secondary">📋 Copy</button>
+            <button id="historyCsvBtn" class="btn btn-sm btn-secondary">📄 CSV</button>
+            <button id="historyExcelBtn" class="btn btn-sm btn-secondary">📊 Excel</button>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>Profile URL</th>
+                <th>Answers</th>
+              </tr>
+            </thead>
+            <tbody id="historyResultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div id="toast" class="toast hidden">Copied to clipboard!</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>
